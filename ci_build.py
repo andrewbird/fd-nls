@@ -119,6 +119,10 @@ for p in PROJECTS:
         print("  Directory '%s'" % d)
 
         indir = Path(p) / d
+        if not indir.is_dir():
+            print("    Warning: '%s' not found" % d)
+            continue
+
         outdir = output / p / d
         outdir.mkdir(parents=True, exist_ok=True)
 
