@@ -122,6 +122,8 @@ for p in PROJECTS:
         outdir = output / p / d
         outdir.mkdir(parents=True, exist_ok=True)
 
+        missing = []
+
         for lng in LANGUAGES:
             vrbsrc = indir / (p + "." + lng)
             utfsrc = indir / (p + "." + lng + ".UTF-8")
@@ -193,4 +195,7 @@ for p in PROJECTS:
                 copy(vrbsrc, outdir)
 
             else:
-                print("    Warning: No translation for '%s'" % lng)
+                missing += [lng,]
+
+        if missing:
+            print("    Warning: No translation for %s" % missing)
