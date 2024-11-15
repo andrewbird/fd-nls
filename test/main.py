@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import re
 import unittest
 
 from difflib import unified_diff
@@ -92,7 +93,6 @@ NON_PROJECTS = (
 )
 
 LANGUAGES = {
-    "en": "CP437",
     "br": "CP850",  # Only CTMOUSE uses 'br' for Brazilian Portuguese
     "cz": "CP852",  # Czech language code is really 'cs' (ISO 639-1)
     "da": "CP850",
@@ -135,23 +135,42 @@ HDR = """\
 
 TOP = Path('.')
 
-class Kitten(unittest.TestCase):
+
+def create_test(name, test):
+    def do_test(self):
+        self._dotest(*test)
+
+    docstring = '{0:<10} ({1:^11}) [{2:^4}]'.format(name, test[0], test[1].upper())
+    setattr(do_test, '__doc__', docstring)
+    return do_test
+
+
+def validate_projects():
+    for d in TOP.glob('*'):
+        if (d.is_dir() and d.name not in NON_PROJECTS
+                and not d.name.startswith(('_', '.'))):
+            if d.name not in PROJECTS:
+                raise ValueError("Warning '%s' not in PROJECTS" % d.name)
+
+
+class Help(unittest.TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        for d in TOP.glob('*'):
-            if (d.is_dir() and d.name not in NON_PROJECTS
-                    and not d.name.startswith(('_', '.'))):
-                if d.name not in PROJECTS:
-                    raise ValueError("Warning '%s' not in PROJECTS" % d.name)
+    def get_tests(cls):
+        tests = []
+        for p in PROJECTS:
+            hlp = Path(p) / 'help'
 
-    def _dotest(self, tipo, prg, lng):
+            for l in LANGUAGES.keys():
+                if (hlp / p).with_suffix('.' + l).exists():
+                    tests.append((p, l))
+        return tests
 
-        indir = TOP / prg / tipo
-        if not indir.is_dir():
-            self.skipTest("'%s' not found" % str(indir))
+    def _dotest(self, prg, lng):
 
-        outdir = OUTPUT / prg / tipo
+        indir = TOP / prg / 'help'
+
+        outdir = OUTPUT / prg / 'help'
         outdir.mkdir(parents=True, exist_ok=True)
 
         # Hack for Brazilian (.ptBR -> .ptb)
@@ -174,7 +193,7 @@ class Kitten(unittest.TestCase):
         if have_utf:
             # Convert to output codepade
             try:
-                hdr = HDR if tipo == 'nls' else HDR.replace('#', ';')
+                hdr = HDR.replace('#', ';')
                 tgt.write_text(hdr + txt, encoding=LANGUAGES[lng], newline='\r\n')
             except UnicodeEncodeError as e:
                 msg = "invalid character for target codepage ('%s')" % e
@@ -201,29 +220,85 @@ class Kitten(unittest.TestCase):
                 self.skipTest("'%s' not found" % lng)
 
 
-def generate_kitten_tests():
-    def create_test(test):
-        def do_test(self):
-            self._dotest(*test)
+class Kitten(unittest.TestCase):
 
-        docstring = """Kitten %s (%s) [%s]""" % (test[0].upper(), test[1], test[2].upper())
-        setattr(do_test, '__doc__', docstring)
-        return do_test
-
-    # Insert each test into the testcase
-    tests = []
-    for p in PROJECTS:
-        for l in LANGUAGES.keys():
+    @classmethod
+    def get_tests(cls):
+        tests = []
+        for p in PROJECTS:
             nls = Path(p) / 'nls'
-            if nls.is_dir():
-                tests.append(('nls', p, l))
 
-            hlp = Path(p) / 'help'
-            if hlp.is_dir():
-                tests.append(('help', p, l))
+            try:
+                found = False
+                with (nls / p).with_suffix('.en').open("r") as f:
+                    # test for proper kittenness or don't add it
+                    r1 = re.compile(r'^(\d+)\.(\d+):')
+                    for line in f.readlines():
+                        if r1.search(line):
+                            found = True
+                            break
 
-    for test in tests:
-        setattr(Kitten, 'test_%s_%s_%s' % test, create_test(test))
+                if found:
+                    for l in LANGUAGES.keys():
+                        if (nls / p).with_suffix('.' + l).exists():
+                            tests.append((p, l))
+
+            except FileNotFoundError:
+                pass
+
+        return tests
+
+    def _dotest(self, prg, lng):
+
+        indir = TOP / prg / 'nls'
+
+        outdir = OUTPUT / prg / 'nls'
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        # Hack for Brazilian (.ptBR -> .ptb)
+        tgt = outdir / (prg + "." + lng[0:4].lower())
+
+        src_utf = indir / (prg + "." + lng + ".UTF-8")
+        src_cpg = indir / (prg + "." + lng)
+
+        # Ensure UTF-8 source is valid if it exists
+        have_utf = False
+        try:
+            txt = src_utf.read_text(encoding="UTF-8")
+            have_utf = True
+        except FileNotFoundError:
+            pass
+        except UnicodeDecodeError as e:
+            msg = "invalid character in UTF-8 ('%s')" % e
+            raise self.failureException(msg) from None
+
+        if have_utf:
+            # Convert to output codepade
+            try:
+                tgt.write_text(HDR + txt, encoding=LANGUAGES[lng], newline='\r\n')
+            except UnicodeEncodeError as e:
+                msg = "invalid character for target codepage ('%s')" % e
+                raise self.failureException(msg) from None
+
+            # Compare encoded text file against our converted text
+            try:
+                txt_cpg = src_cpg.read_text(encoding=LANGUAGES[lng])
+                if txt_cpg != txt:
+                    txt_list = txt.split('\n')
+                    cpg_list = txt_cpg.split('\n')
+                    diff = unified_diff(txt_list, cpg_list, fromfile=str(src_utf), tofile=str(src_cpg), lineterm='\n')
+                    msg = "UTF-8 and encoded text differ\n%s" % '\n'.join(diff)
+                    raise self.failureException(msg) from None
+            except FileNotFoundError:
+                pass
+
+        else:
+            # Very little we can check on encoded text, just copy it to
+            # the output directory.
+            try:
+                copy(src_cpg, outdir)
+            except FileNotFoundError:
+                self.skipTest("'%s' not found" % lng)
 
 
 class MyTestResult(unittest.TextTestResult):
@@ -237,6 +312,12 @@ class MyTestRunner(unittest.TextTestRunner):
 
 
 if __name__ == '__main__':
-    generate_kitten_tests()
+    validate_projects()
+
+    # Insert each test into the respective testcase
+    for test in Help.get_tests():
+        setattr(Help, 'test_help_%s_%s' % test, create_test('Help', test))
+    for test in Kitten.get_tests():
+        setattr(Kitten, 'test_kitten_%s_%s' % test, create_test('Kitten', test))
 
     unittest.main(testRunner=MyTestRunner, verbosity=2)
