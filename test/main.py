@@ -66,7 +66,6 @@ PROJECTS = (
     "stamp",
     "syslnx",
     "tee",
-    "test.out",
     "trch",
     "tree",
     "usbdos",
