@@ -222,6 +222,8 @@ class Help(unittest.TestCase):
 
 class Kitten(unittest.TestCase):
 
+    ids = []
+
     @classmethod
     def get_tests(cls):
         tests = []
@@ -236,6 +238,7 @@ class Kitten(unittest.TestCase):
                     for line in f.readlines():
                         if r1.search(line):
                             found = True
+                            cls.ids.append((2,3))
                             break
 
                 if found:
@@ -254,6 +257,8 @@ class Kitten(unittest.TestCase):
 
         outdir = OUTPUT / prg / 'nls'
         outdir.mkdir(parents=True, exist_ok=True)
+
+        print(self.ids)
 
         # Hack for Brazilian (.ptBR -> .ptb)
         tgt = outdir / (prg + "." + lng[0:4].lower())
